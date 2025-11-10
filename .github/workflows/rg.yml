@@ -1,20 +1,8 @@
-# .github/workflows/rg.yml
 name: Deploy Resource Group (subscription-level)
 
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: 'Which resource to deploy'
-        required: true
-        type: choice
-        options:
-          - all
-          - resource-group
-          - storage
-          - keyvault
-          - container
-        default: all
       environment:
         description: 'Environment (dev/uat/prod)'
         required: true
@@ -32,8 +20,7 @@ on:
 jobs:
   deploy-rg:
     runs-on: ubuntu-latest
-
-    # Enforce GitHub Environment approvals (Dev/UAT/Prod)
+    # Enforce GitHub Environment approvals
     environment: ${{ github.event.inputs.environment }}
 
     env:
@@ -54,7 +41,7 @@ jobs:
       - name: Set subscription
         run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Resolve parameter file by environment
+      - name: Pick params file
         id: params
         run: |
           ENV="${{ github.event.inputs.environment }}"
@@ -71,23 +58,20 @@ jobs:
           if [ -z "$INPUT_LOC" ]; then
             echo "USING_PARAM_FILE=$PARAMS" >> $GITHUB_OUTPUT
           else
-            # create a copy and replace the 'location' parameter value (assumes param key is 'location')
             TMP_FILE="/tmp/rg.params.$RANDOM.json"
             jq --arg loc "$INPUT_LOC" '.parameters.location.value = $loc' ${PARAMS#@} > "$TMP_FILE"
             echo "USING_PARAM_FILE=@$TMP_FILE" >> $GITHUB_OUTPUT
           fi
 
-      - name: Show selected parameters (debug)
+      - name: Show selected parameters
         run: |
           echo "Environment: ${{ steps.params.outputs.SELECTED_ENV }}"
           echo "Parameter file used: ${{ steps.override.outputs.USING_PARAM_FILE }}"
 
-      - name: What-if (preview changes)
+      - name: What-if (preview)
         run: |
-          # pick location: if user supplied one use it, otherwise fallback to the parameter file value
           LOCATION="${{ github.event.inputs.location }}"
           if [ -z "$LOCATION" ]; then
-            # try to read location from param file
             PARAM_FILE_PATH="${{ steps.params.outputs.PARAM_FILE }}"; PARAM_FILE_PATH=${PARAM_FILE_PATH#@}
             LOCATION=$(jq -r '.parameters.location.value // empty' "$PARAM_FILE_PATH")
             if [ -z "$LOCATION" ]; then LOCATION="eastus"; fi
