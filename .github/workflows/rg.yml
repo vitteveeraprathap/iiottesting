@@ -1,0 +1,41 @@
+name: Deploy Resource Group (Bicep)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - uat
+      - main
+
+jobs:
+  deploy-rg:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'Dev' || github.ref_name == 'uat' && 'UAT' || github.ref_name == 'main' && 'Prod' || github.ref_name == 'master' && 'Prod' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'Login to Azure'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 'Set subscription'
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: 'Select parameter file by branch'
+        id: params
+        run: |
+          if [[ "${{ github.ref_name }}" == "dev" ]]; then echo "PARAM_FILE=infra/rg/resource-group-dev.parameters.json" >> $GITHUB_OUTPUT; fi
+          if [[ "${{ github.ref_name }}" == "uat" ]]; then echo "PARAM_FILE=infra/rg/resource-group-uat.parameters.json" >> $GITHUB_OUTPUT; fi
+          if [[ "${{ github.ref_name }}" == "main" || "${{ github.ref_name }}" == "master" ]]; then echo "PARAM_FILE=infra/rg/resource-group-prod.parameters.json" >> $GITHUB_OUTPUT; fi
+
+      - name: 'Deploy Resource Group (subscription scope)'
+        uses: azure/arm-deploy@v1
+        with:
+          subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          resourceGroupName: ''
+          template: 'infra/rg/rg.bicep'
+          deploymentScope: 'subscription'
+          parameters: "@${{ steps.params.outputs.PARAM_FILE }}"
