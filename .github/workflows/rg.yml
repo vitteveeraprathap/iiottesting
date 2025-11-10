@@ -50,24 +50,6 @@ jobs:
           if [ "$ENV" = "prod" ]; then echo "PARAM_FILE=${{ env.PARAMS_PROD }}" >> $GITHUB_OUTPUT; fi
           echo "SELECTED_ENV=$ENV" >> $GITHUB_OUTPUT
 
-      - name: Optional: override location into a temp params file
-        id: override
-        run: |
-          INPUT_LOC="${{ github.event.inputs.location }}"
-          PARAMS="@${{ steps.params.outputs.PARAM_FILE }}"
-          if [ -z "$INPUT_LOC" ]; then
-            echo "USING_PARAM_FILE=$PARAMS" >> $GITHUB_OUTPUT
-          else
-            TMP_FILE="/tmp/rg.params.$RANDOM.json"
-            jq --arg loc "$INPUT_LOC" '.parameters.location.value = $loc' ${PARAMS#@} > "$TMP_FILE"
-            echo "USING_PARAM_FILE=@$TMP_FILE" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Show selected parameters
-        run: |
-          echo "Environment: ${{ steps.params.outputs.SELECTED_ENV }}"
-          echo "Parameter file used: ${{ steps.override.outputs.USING_PARAM_FILE }}"
-
       - name: What-if (preview)
         run: |
           LOCATION="${{ github.event.inputs.location }}"
