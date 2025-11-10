@@ -12,28 +12,22 @@ on:
           - uat
           - prod
         default: dev
-      location:
-        description: 'Azure location (overrides param file if provided)'
-        required: false
-        default: ''
 
 jobs:
-  deploy-rg:
+  deploy:
     runs-on: ubuntu-latest
-    # Enforce GitHub Environment approvals
     environment: ${{ github.event.inputs.environment }}
 
     env:
-      BICEP_FILE: infra/rg/rg.bicep
-      PARAMS_DEV: infra/rg/resource-group-dev.parameters.json
-      PARAMS_UAT: infra/rg/resource-group-uat.parameters.json
-      PARAMS_PROD: infra/rg/resource-group-prod.parameters.json
+      BICEP: infra/rg/rg.bicep
+      DEV_PARAMS: infra/rg/resource-group-dev.parameters.json
+      UAT_PARAMS: infra/rg/resource-group-uat.parameters.json
+      PROD_PARAMS: infra/rg/resource-group-prod.parameters.json
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Azure login
+      - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -41,44 +35,19 @@ jobs:
       - name: Set subscription
         run: az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Pick params file
-        id: params
+      - name: Pick parameter file
+        id: pick
         run: |
-          ENV="${{ github.event.inputs.environment }}"
-          if [ "$ENV" = "dev" ]; then echo "PARAM_FILE=${{ env.PARAMS_DEV }}" >> $GITHUB_OUTPUT; fi
-          if [ "$ENV" = "uat" ]; then echo "PARAM_FILE=${{ env.PARAMS_UAT }}" >> $GITHUB_OUTPUT; fi
-          if [ "$ENV" = "prod" ]; then echo "PARAM_FILE=${{ env.PARAMS_PROD }}" >> $GITHUB_OUTPUT; fi
-          echo "SELECTED_ENV=$ENV" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.inputs.environment }}" = "dev" ]; then echo "PARAM=@${{ env.DEV_PARAMS }}" >> $GITHUB_OUTPUT; fi
+          if [ "${{ github.event.inputs.environment }}" = "uat" ]; then echo "PARAM=@${{ env.UAT_PARAMS }}" >> $GITHUB_OUTPUT; fi
+          if [ "${{ github.event.inputs.environment }}" = "prod" ]; then echo "PARAM=@${{ env.PROD_PARAMS }}" >> $GITHUB_OUTPUT; fi
 
-      - name: What-if (preview)
+      - name: Deploy resource group (subscription scope)
         run: |
-          LOCATION="${{ github.event.inputs.location }}"
-          if [ -z "$LOCATION" ]; then
-            PARAM_FILE_PATH="${{ steps.params.outputs.PARAM_FILE }}"; PARAM_FILE_PATH=${PARAM_FILE_PATH#@}
-            LOCATION=$(jq -r '.parameters.location.value // empty' "$PARAM_FILE_PATH")
-            if [ -z "$LOCATION" ]; then LOCATION="eastus"; fi
-          fi
-
-          az deployment sub what-if \
-            --location "$LOCATION" \
-            --template-file "${{ env.BICEP_FILE }}" \
-            --parameters "${{ steps.override.outputs.USING_PARAM_FILE }}" \
-            --query "properties.changeSummary" --output json
-
-      - name: Deploy (subscription-level)
-        run: |
-          LOCATION="${{ github.event.inputs.location }}"
-          if [ -z "$LOCATION" ]; then
-            PARAM_FILE_PATH="${{ steps.params.outputs.PARAM_FILE }}"; PARAM_FILE_PATH=${PARAM_FILE_PATH#@}
-            LOCATION=$(jq -r '.parameters.location.value // empty' "$PARAM_FILE_PATH")
-            if [ -z "$LOCATION" ]; then LOCATION="eastus"; fi
-          fi
-
-          DEPLOY_NAME="rg-deploy-${{ github.run_id }}"
-
+          echo "Using parameters: ${{ steps.pick.outputs.PARAM }}"
           az deployment sub create \
-            --name "$DEPLOY_NAME" \
-            --location "$LOCATION" \
-            --template-file "${{ env.BICEP_FILE }}" \
-            --parameters "${{ steps.override.outputs.USING_PARAM_FILE }}" \
+            --name "rg-deploy-${{ github.run_id }}" \
+            --location "$(jq -r '.parameters.location.value' ${${{ steps.pick.outputs.PARAM }#@}} 2>/dev/null || echo eastus)" \
+            --template-file "${{ env.BICEP }}" \
+            --parameters "${{ steps.pick.outputs.PARAM }}" \
             --only-show-errors
